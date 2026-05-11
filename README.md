@@ -126,6 +126,57 @@ AI assistance was used for:
 
 The implementation, execution, debugging, and test validation were completed manually.
 
+
+
+# Part 2 — Playwright Tooling & AI Usage
+
+## Codegen + Refactor
+
+Used Playwright Codegen to generate an initial ecommerce flow and then manually refactored the generated code to improve:
+- readability
+- locator quality
+- maintainability
+- assertion clarity
+
+Files:
+```bash
+tests/codegen-raw.spec.ts
+tests/codegen-refactored.spec.ts
+```
+
+---
+
+## AI-generated Test Scenarios
+
+Used Gemini CLI to generate ecommerce-focused Playwright test ideas.
+
+Implemented selected AI-generated scenarios:
+- Scenario 10: Race condition — rapid Add to Cart clicks
+- Scenario 3: Empty cart recovery flow
+
+File:
+```bash
+tests/part-2/ai-generated.spec.ts
+```
+
+Prompt and raw AI output are documented in:
+
+```bash
+ai-prompts.md
+```
+
+---
+
+## Trace Viewer Observation
+
+Playwright Trace Viewer was used to inspect:
+- UI actions step-by-step
+- locator execution flow
+- network activity
+- page navigation timing
+
+The trace helped visualize execution timing and understand how Playwright synchronizes actions during test execution.
+
 ---
 
 # Challenges Faced
