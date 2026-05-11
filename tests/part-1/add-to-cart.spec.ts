@@ -1,42 +1,51 @@
 import { test, expect, chromium } from '@playwright/test';
 
-test('Add 3 products to cart and verify count', async () => {
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext();
-  const page = await context.newPage();
+test.describe('Race-safe Add-to-Cart', () => {
 
-  // Go to homepage first 
-  await page.goto('https://storedemo.testdino.com', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(3000);
+  test('Add 3 products to cart and verify count', async () => {
 
-  // add product 1
-  await page.getByText('Seagate 4TB External Hard Drive').first().click();
-  await page.waitForTimeout(2000);
-  await page.getByTestId('add-to-cart-button').click();
-  await page.waitForTimeout(1000);
-  console.log('Product 1 added');
+    const browser = await chromium.launch({
+      headless: false,
+    });
 
-  // add product 2
-  await page.goto('https://storedemo.testdino.com', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(3000);
-  await page.getByText('JBL Charge 4 Bluetooth Speaker').first().click();
-  await page.waitForTimeout(2000);
-  await page.getByTestId('add-to-cart-button').click();
-  await page.waitForTimeout(1000);
-  console.log('Product 2 added');
+    const context = await browser.newContext();
+    const page = await context.newPage();
 
-  // add product 3
-  await page.goto('https://storedemo.testdino.com', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(3000);
-  await page.getByText('Rode NT-A Condenser Mic').first().click();
-  await page.waitForTimeout(2000);
-  await page.getByTestId('add-to-cart-button').click();
-  await page.waitForTimeout(1000);
-  console.log('Product 3 added ');
+    const BASE_URL = 'https://storedemo.testdino.com';
 
-  // verify cart badge shows 3
-  await expect(page.getByText('3').first()).toBeVisible();
-  console.log('Cart badge shows 3 ');
+    const products = [
+      'Seagate 4TB External Hard Drive',
+      'JBL Charge 4 Bluetooth Speaker',
+      'Rode NT1-A Condenser Mic',
+    ];
 
-  await browser.close();
+    await page.goto(BASE_URL);
+
+    for (const product of products) {
+
+      await page.goto(BASE_URL);
+
+      await page.getByText(product).first().click();
+
+      const addToCartButton = page.getByTestId('add-to-cart-button');
+
+      await expect(addToCartButton).toBeVisible();
+
+      await addToCartButton.click();
+
+      console.log(`${product} added successfully`);
+    }
+
+    const cartBadge = page.getByText('3').first();
+
+    await expect(cartBadge).toBeVisible();
+
+    await page.screenshot({
+      path: 'screenshots/cart-with-3-products.png',
+      fullPage: true,
+    });
+
+    await browser.close();
+  });
+
 });

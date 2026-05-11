@@ -1,42 +1,68 @@
 import { test, expect, chromium } from '@playwright/test';
 
-test('User A cart should not affect User B cart', async () => {
-  const browser = await chromium.launch({ headless: false });
+test.describe('Cross-context isolation', () => {
 
-  // user a
-  const contextA = await browser.newContext();
-  const pageA = await contextA.newPage();
+  test('User A cart should not affect User B cart', async () => {
 
-  // home page first
-  await pageA.goto('https://storedemo.testdino.com', { waitUntil: 'domcontentloaded' });
-  await pageA.waitForTimeout(3000);
+    const browser = await chromium.launch({
+      headless: false,
+    });
 
-  // create product page screenshot before adding to cart
-  await pageA.getByText('Seagate 4TB External Hard Drive').first().click();
-  await pageA.waitForTimeout(3000);
+    const BASE_URL = 'https://storedemo.testdino.com';
 
-  console.log('Product page URL:', pageA.url());
-  await pageA.screenshot({ path: 'product-page.png', fullPage: true });
+    
+    // User A Context
+    const contextA = await browser.newContext();
+    const pageA = await contextA.newPage();
 
-  // Now click Add to Cart
-  await pageA.getByTestId('add-to-cart-button').click();
-  await pageA.waitForTimeout(1000);
+    await pageA.goto(BASE_URL);
 
-  await expect(pageA.locator('text=1').first()).toBeVisible();
-  console.log('User A cart badge visible');
+    // Open product page
+    await pageA
+      .getByText('Seagate 4TB External Hard Drive')
+      .first()
+      .click();
 
-  // user b
-  const contextB = await browser.newContext();
-  const pageB = await contextB.newPage();
+    // Wait until Add to Cart button is visible
+    const addToCartButton = pageA.getByTestId('add-to-cart-button');
 
-  await pageB.goto('https://storedemo.testdino.com', { waitUntil: 'domcontentloaded' });
-  await pageB.waitForTimeout(2000);
+    await expect(addToCartButton).toBeVisible();
 
-  const badge = pageB.locator('[class*="badge"], [class*="cart-count"], [class*="count"]');
-  await expect(badge).not.toBeVisible();
-  console.log('User B cart is empty ');
+    // Capture product page screenshot
+    await pageA.screenshot({
+      path: 'screenshots/product-page.png',
+      fullPage: true,
+    });
 
-  await contextA.close();
-  await contextB.close();
-  await browser.close();
+    // Add product to cart
+    await addToCartButton.click();
+
+    // Verify User A cart contains item
+    const cartBadge = pageA.locator('text=1').first();
+
+    await expect(cartBadge).toBeVisible();
+
+    console.log('User A successfully added product to cart');
+
+    // User B Context
+    const contextB = await browser.newContext();
+    const pageB = await contextB.newPage();
+
+    await pageB.goto(BASE_URL);
+
+    // Verify User B has empty cart
+    const userBCartBadge = pageB.locator(
+      '[class*="badge"], [class*="cart-count"], [class*="count"]'
+    );
+
+    await expect(userBCartBadge).not.toBeVisible();
+
+    console.log('User B cart remained isolated and empty');
+
+    // Clean 
+    await contextA.close();
+    await contextB.close();
+    await browser.close();
+  });
+
 });
