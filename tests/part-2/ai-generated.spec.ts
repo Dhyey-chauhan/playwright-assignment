@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('AI Generated Test Scenarios', () => {
+test.describe('AI Generated Test Scenarios', { tag: ['@ai-generated'] }, () => {
 
   // Scenario 10: Race Condition - Double Click "Add to Cart"
-  test('Prevent duplicate cart additions on rapid clicks', async ({ page }) => {
+  test('Prevent duplicate cart additions on rapid clicks', { tag: ['@race-condition', '@critical'] }, async ({ page }) => {
 
     const BASE_URL = 'https://storedemo.testdino.com';
 
@@ -26,7 +26,7 @@ test.describe('AI Generated Test Scenarios', () => {
   });
 
    // Scenario 3: Empty Cart State and Recovery
-   test('Verify empty cart recovery flow', async ({ page }) => {
+   test('Verify empty cart recovery flow', { tag: ['@cart-recovery', '@smoke'] }, async ({ page }) => {
 
     const BASE_URL = 'https://storedemo.testdino.com';
 

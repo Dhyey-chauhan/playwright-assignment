@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Refactored ecommerce flow', () => {
+test.describe('Refactored ecommerce flow', { tag: ['@refactored'] }, () => {
 
-  test('User adds products and opens checkout flow', async ({ page }) => {
+  test('User adds products and opens checkout flow', { tag: ['@checkout-flow', '@critical'] }, async ({ page }) => {
 
     const BASE_URL = 'https://storedemo.testdino.com';
 

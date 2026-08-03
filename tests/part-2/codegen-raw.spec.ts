@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('Generated ecommerce checkout flow', async ({ page }) => {
+test('Generated ecommerce checkout flow', { tag: ['@codegen', '@regression'] }, async ({ page }) => {
   await page.goto('https://storedemo.testdino.com/');
   await page.getByTestId('header-menu-home').click();
   await page.getByTestId('featured-products-section').getByRole('link', { name: 'dp JBL Charge 4 Bluetooth' }).click();

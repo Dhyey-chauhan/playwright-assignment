@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Network-driven state coverage', () => {
+// Option A: Tagging the entire suite via the configuration object
+test.describe('Network-driven state coverage', { tag: ['@network', '@mocking'] }, () => {
 
-  test('Empty catalog state', async ({ page }) => {
+  // Option B: Tagging individual tests via the configuration object
+  test('Empty catalog state', { tag: ['@empty-state', '@smoke'] }, async ({ page }) => {
 
     // Mock empty product response
     await page.route('**/api/products**', async route => {
@@ -30,7 +32,7 @@ test.describe('Network-driven state coverage', () => {
   });
 
 
-  test('Server error 500 state', async ({ page }) => {
+  test('Server error 500 state', { tag: ['@error-handling', '@critical'] }, async ({ page }) => {
 
     // Mock server error response
     await page.route('**/api/products**', async route => {
@@ -59,7 +61,7 @@ test.describe('Network-driven state coverage', () => {
   });
 
 
-  test('Slow network delay state', async ({ page }) => {
+  test('Slow network delay state', { tag: ['@performance', '@regression'] }, async ({ page }) => {
 
     // Simulate slow API response
     await page.route('**/api/products**', async route => {
