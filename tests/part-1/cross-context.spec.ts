@@ -1,8 +1,10 @@
 import { test, expect, chromium } from '@playwright/test';
 
-test.describe('Cross-context isolation', () => {
+// Added '@regression' to the suite-level configuration object
+test.describe('Cross-context isolation', { tag: ['@security', '@isolation', '@regression'] }, () => {
 
-  test('User A cart should not affect User B cart', async () => {
+  // Added '@cart-flow' and '@critical-path' to the test-level configuration object
+  test('User A cart should not affect User B cart', { tag: ['@multi-user', '@cart-flow', '@critical'] }, async () => {
 
     const browser = await chromium.launch({
       headless: false,
@@ -10,7 +12,6 @@ test.describe('Cross-context isolation', () => {
 
     const BASE_URL = 'https://storedemo.testdino.com';
 
-    
     // User A Context
     const contextA = await browser.newContext();
     const pageA = await contextA.newPage();

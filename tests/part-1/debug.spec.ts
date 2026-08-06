@@ -1,6 +1,7 @@
 import { test } from '@playwright/test';
 
-test('debug - see what playwright sees', async ({ page }) => {
+// Tagging the individual test block via the configuration object
+test('debug - see what playwright sees', { tag: ['@debug', '@regression'] }, async ({ page }) => {
   // go to home page
   await page.goto('https://storedemo.testdino.com', { 
     waitUntil: 'domcontentloaded' 
