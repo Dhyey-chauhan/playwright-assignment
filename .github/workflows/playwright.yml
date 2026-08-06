@@ -20,9 +20,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || !inputs.update_snapshots }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Pinned to the installed @playwright/test version. The suite is mostly
-    # toHaveScreenshot(), so rendering has to be byte-identical run to run —
-    # a bare ubuntu-latest runner drifts as GitHub rebuilds the image.
+
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
       options: --user 1001
@@ -30,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # TestDino reads branch / commit / author from git metadata
+          fetch-depth: 0
 
       - name: Trust the workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
