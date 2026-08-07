@@ -10,6 +10,11 @@ node_modules/
 /playwright/.cache/
 /playwright/.auth/
 
+# Code coverage
+/coverage/
+/.nyc_output/
+/instrumented-src/
+
 # Local / OS
 /package/
 .DS_Store
