@@ -5,7 +5,13 @@
   "main": "index.js",
   "scripts": {
     "test": "playwright test",
-    "test:report": "playwright show-report"
+    "test:report": "playwright show-report",
+    "start:test": "NODE_ENV=test sh -c \"${COVERAGE_APP_CMD:?Set COVERAGE_APP_CMD to the command that serves the Istanbul-instrumented build of the app under test}\"",
+    "test:coverage": "COVERAGE=true npx tdpw test --coverage --project=coverage",
+    "test:coverage:v8": "COVERAGE=true COVERAGE_MODE=v8 npx tdpw test --coverage --project=coverage",
+    "test:coverage:low": "COVERAGE=true TESTDINO_TAGS=coverage,low npx tdpw test --coverage --project=coverage --ci-run-id coverage-low --grep @coverage-low",
+    "test:coverage:mid": "COVERAGE=true TESTDINO_TAGS=coverage,mid npx tdpw test --coverage --project=coverage --ci-run-id coverage-mid --grep @coverage-mid",
+    "test:coverage:high": "COVERAGE=true TESTDINO_TAGS=coverage,high npx tdpw test --coverage --project=coverage --ci-run-id coverage-high --grep @coverage-high"
   },
   "keywords": [],
   "author": "",
@@ -13,9 +19,10 @@
   "type": "commonjs",
   "devDependencies": {
     "@playwright/test": "^1.59.1",
-    "@testdino/playwright": "^2.2.1",
+    "@testdino/playwright": "2.2.0",
     "@types/node": "^25.6.2",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "v8-to-istanbul": "^9.3.0"
   },
   "dependencies": {
     "playwright-extra": "^4.3.6",
