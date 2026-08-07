@@ -7,6 +7,12 @@ const testdinoTags = process.env.TESTDINO_TAGS
   .map((tag) => tag.trim())
   .filter(Boolean);
 
+// Where runs are reported. Defaults to staging; override with TESTDINO_SERVER_URL
+// (.env locally, the TESTDINO_SERVER_URL repo variable in CI) to point at
+// production, which is where the reporter goes on its own if this is unset.
+const testdinoServerUrl =
+  process.env.TESTDINO_SERVER_URL || 'https://stg-reporter.testdino.com/';
+
 // Code coverage is opt-in: `COVERAGE=true npm run test:coverage`.
 const coverageEnabled = process.env.COVERAGE === 'true';
 
@@ -65,7 +71,7 @@ export default defineConfig({
     ['html', { open: 'never' }],
     ['@testdino/playwright', {
       token: process.env.TESTDINO_TOKEN,
-      serverUrl: process.env.TESTDINO_SERVER_URL,
+      serverUrl: testdinoServerUrl,
       ...(testdinoTags?.length ? { tags: testdinoTags } : {}),
       ...(coverageEnabled
         ? {
