@@ -7,6 +7,12 @@ const testdinoTags = process.env.TESTDINO_TAGS
   .map((tag) => tag.trim())
   .filter(Boolean);
 
+// Where runs are reported. Defaults to staging; override with TESTDINO_SERVER_URL
+// (.env locally, the TESTDINO_SERVER_URL repo variable in CI) to point at
+// production, which is where the reporter goes on its own if this is unset.
+const testdinoServerUrl =
+  process.env.TESTDINO_SERVER_URL || 'https://stg-reporter.testdino.com/';
+
 // Code coverage is opt-in: `COVERAGE=true npm run test:coverage`.
 const coverageEnabled = process.env.COVERAGE === 'true';
 
@@ -56,7 +62,9 @@ export default defineConfig({
   testDir: './tests',
   // Coverage specs are meaningful only under the dedicated coverage project, so they
   // are excluded everywhere by default. The `coverage` project opts back in below.
-  testIgnore: '**/coverage.spec.ts',
+  // The interrupted pair only makes sense under --max-failures (npm run
+  // test:interrupted), so it stays out of the normal run.
+  testIgnore: ['**/coverage.spec.ts', '**/part-3/interrupted/**'],
   fullyParallel: false,
   retries: 0,
   workers: 1,
@@ -65,7 +73,7 @@ export default defineConfig({
     ['html', { open: 'never' }],
     ['@testdino/playwright', {
       token: process.env.TESTDINO_TOKEN,
-      serverUrl: process.env.TESTDINO_SERVER_URL,
+      serverUrl: testdinoServerUrl,
       ...(testdinoTags?.length ? { tags: testdinoTags } : {}),
       ...(coverageEnabled
         ? {
