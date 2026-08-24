@@ -19,7 +19,7 @@
   "type": "commonjs",
   "devDependencies": {
     "@playwright/test": "^1.59.1",
-    "@testdino/playwright": "file:package",
+    "@testdino/playwright": "^2.4.0",
     "@types/node": "^25.6.2",
     "dotenv": "^17.4.2",
     "v8-to-istanbul": "^9.3.0"
