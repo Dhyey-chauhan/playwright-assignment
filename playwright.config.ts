@@ -62,7 +62,9 @@ export default defineConfig({
   testDir: './tests',
   // Coverage specs are meaningful only under the dedicated coverage project, so they
   // are excluded everywhere by default. The `coverage` project opts back in below.
-  testIgnore: '**/coverage.spec.ts',
+  // The interrupted pair only makes sense under --max-failures (npm run
+  // test:interrupted), so it stays out of the normal run.
+  testIgnore: ['**/coverage.spec.ts', '**/part-3/interrupted/**'],
   fullyParallel: false,
   retries: 0,
   workers: 1,

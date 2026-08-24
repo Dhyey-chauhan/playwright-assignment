@@ -45,6 +45,8 @@ jobs:
           # Run-level label on the TestDino run: the PR's source branch, or the
           # branch that was pushed.
           TESTDINO_TAGS: ${{ github.head_ref || github.ref_name }}
+          SLACK_ALERT_CHANNEL: ${{ secrets.SLACK_ALERT_CHANNEL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: npx playwright test
 
       - name: Upload Playwright report
