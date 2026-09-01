@@ -1,5 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
-import 'dotenv/config';
+import dotenv from 'dotenv';
+
+// quiet:true because `tdpw orchestrate discover` parses the stdout of
+// `playwright test --list --reporter=json`, and dotenv's "injected env" notice
+// would land in the middle of that JSON. Harmless on the pinned dotenv 17.4.2
+// (quiet by default), load-bearing if that default ever flips back.
+dotenv.config({ quiet: true });
 
 // Run-level labels for the TestDino run (comma-separated, e.g. TESTDINO_TAGS=dhyey/testing-PR)
 const testdinoTags = process.env.TESTDINO_TAGS
