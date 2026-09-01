@@ -24,6 +24,13 @@ on:
         type: boolean
         default: false
 
+# Container jobs fall back to `sh -e {0}` unless bash is explicitly requested,
+# and sh here is dash: no `set -o pipefail`, no `args=()` arrays. Naming the
+# shell keeps every run step on bash.
+defaults:
+  run:
+    shell: bash
+
 env:
   # The reporter reads these from playwright.config.ts. Staging is the hyphenated
   # host — stg.reporter.testdino.com does not resolve.
