@@ -39,7 +39,10 @@ env:
   # The reporter reads these from playwright.config.ts. Staging is the hyphenated
   # host — stg.reporter.testdino.com does not resolve.
   TESTDINO_TOKEN: ${{ secrets.TESTDINO_TOKEN }}
-  TESTDINO_SERVER_URL: ${{ vars.TESTDINO_SERVER_URL || 'https://stg-reporter.testdino.com/' }}
+  # Accepts the URL from either store: playwright.yml uses a repo variable, but
+  # it is just as reasonable to put it beside the token in secrets. Variable
+  # wins if both are set; the default is the staging host.
+  TESTDINO_SERVER_URL: ${{ vars.TESTDINO_SERVER_URL || secrets.TESTDINO_SERVER_URL || 'https://stg-reporter.testdino.com/' }}
   TESTDINO_TAGS: orchestration,${{ github.ref_name }}
   PW_PROJECT: chromium
 
@@ -90,6 +93,38 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # CI does not read .env — that file is gitignored and never checked out.
+      # The token comes from the repo secret and the URL from the repo variable,
+      # so a token rotated only in .env leaves CI reporting into the old
+      # project, which looks identical to "nothing was uploaded".
+      - name: Preflight the TestDino credentials
+        run: |
+          if [ -z "${TESTDINO_TOKEN:-}" ]; then
+            echo "::error::secrets.TESTDINO_TOKEN is empty. Set it under Settings > Secrets and variables > Actions > Secrets."
+            exit 1
+          fi
+          case "$TESTDINO_TOKEN" in
+            td_api_*) ;;
+            *) echo "::error::TESTDINO_TOKEN does not look like a pipeline token (expected a td_api_ prefix)."; exit 1 ;;
+          esac
+          # The token itself is never printed; GitHub would mask it anyway.
+          echo "token     : td_api_… (${#TESTDINO_TOKEN} chars)"
+          echo "serverUrl : $TESTDINO_SERVER_URL"
+
+          # Guarded: getent is glibc-only, and its absence must not read as a
+          # failed lookup.
+          host=$(printf '%s' "$TESTDINO_SERVER_URL" | sed -e 's|^[a-z]*://||' -e 's|[:/].*$||')
+          if command -v getent >/dev/null 2>&1; then
+            if getent hosts "$host" >/dev/null 2>&1; then
+              echo "dns       : $host resolves"
+            else
+              echo "::error::$host does not resolve. Staging is stg-reporter.testdino.com (hyphen) — check the TESTDINO_SERVER_URL repo variable, which overrides this workflow's default."
+              exit 1
+            fi
+          else
+            echo "dns       : skipped (no getent)"
+          fi
 
       - name: Discover + mint orchestration
         id: mint
