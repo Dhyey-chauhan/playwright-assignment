@@ -1,0 +1,220 @@
+name: Playwright Orchestrate (staging smoke)
+
+# Manual only. The orchestration backend is staging-only and not yet
+# production-ready (open: ORCH-04 ghost-machineId dark bug, Phase-4 lease
+# reclaim/finalize gaps) — do not wire this to push/pull_request until those
+# close. See docs/TEST_ORCHESTRATION.md in the microservices repo.
+on:
+  workflow_dispatch:
+    inputs:
+      machines:
+        description: 'Machines to distribute across. The run matrix is derived from this, so the two cannot drift.'
+        type: string
+        default: '2'
+      grep:
+        description: >-
+          Playwright --grep applied at discovery and echoed back to every batch.
+          Also the escape hatch for a 409: re-minting the same commit with a
+          different machine count is a contract violation, but a different grep
+          is a different suite fingerprint, so it mints clean.
+        type: string
+        default: ''
+      debug:
+        description: 'Enable tdpw debug logging on both stages'
+        type: boolean
+        default: false
+
+env:
+  # The reporter reads these from playwright.config.ts. Staging is the hyphenated
+  # host — stg.reporter.testdino.com does not resolve.
+  TESTDINO_TOKEN: ${{ secrets.TESTDINO_TOKEN }}
+  TESTDINO_SERVER_URL: ${{ vars.TESTDINO_SERVER_URL || 'https://stg-reporter.testdino.com/' }}
+  TESTDINO_TAGS: orchestration,${{ github.ref_name }}
+  PW_PROJECT: chromium
+
+# One orchestration at a time per ref. cancel-in-progress stays false on purpose:
+# cancelling a machine abandons its leased batch, which then sits unclaimed until
+# the lease TTL expires (no reclaim-on-cancel yet — ORCH-17/18).
+concurrency:
+  group: orchestrate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Discover + mint orchestration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Same pinned image as playwright.yml. Browsers ship inside it, so there is no
+    # install or cache step, and the runner's Chromium cannot drift from the
+    # @playwright/test version this repo pins.
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      options: --user 1001
+    outputs:
+      orchestration-id: ${{ steps.mint.outputs.orchestration-id }}
+      machine-indices: ${{ steps.mint.outputs.machine-indices }}
+      spec-count: ${{ steps.mint.outputs.spec-count }}
+      machines: ${{ steps.mint.outputs.machines }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # TestDino reads branch / commit / author from git metadata
+
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # @testdino/playwright is a local tarball (file:testdino-playwright-*.tgz),
+      # so npm ci fails with a bare EBADPLATFORM-style error if it was never
+      # committed. Say so plainly instead.
+      - name: Check the reporter tarball is committed
+        run: |
+          tgz=$(node -p "require('./package.json').devDependencies['@testdino/playwright'].replace(/^file:/,'')")
+          if [ ! -f "$tgz" ]; then
+            echo "::error::$tgz is missing. package.json depends on it via file:, so npm ci cannot resolve @testdino/playwright."
+            echo "::error::Commit it: npm pack ./package && git add -f $tgz"
+            exit 1
+          fi
+          echo "found $tgz"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Discover + mint orchestration
+        id: mint
+        env:
+          # dotenv@17 can print "injected env ..." to stdout, which would corrupt
+          # the `playwright test --list --reporter=json` output that discovery
+          # parses. dotenv 17.4.2 is quiet by default and playwright.config.ts
+          # passes quiet:true — this is the third belt.
+          DOTENV_CONFIG_QUIET: 'true'
+          # Passed via env, not string-interpolated into the command, so a grep
+          # containing spaces or shell metacharacters stays one argument.
+          ORCH_MACHINES: ${{ inputs.machines }}
+          ORCH_GREP: ${{ inputs.grep }}
+          ORCH_DEBUG: ${{ inputs.debug }}
+        run: |
+          set -euo pipefail
+          args=(--machines "$ORCH_MACHINES" --project "$PW_PROJECT")
+          if [ -n "$ORCH_GREP" ]; then args+=(--grep "$ORCH_GREP"); fi
+          if [ "$ORCH_DEBUG" = "true" ]; then args+=(--debug); fi
+          npx tdpw orchestrate discover "${args[@]}" --out orch.json
+
+          id=$(node -p "require('./orch.json').orchestrationId || ''")
+          if [ -z "$id" ]; then
+            echo "::error::mint returned no orchestrationId"
+            cat orch.json || true
+            exit 1
+          fi
+
+          # created:false means this suite fingerprint was already minted — an
+          # idempotent retry, not a new run group.
+          node -e '
+            const m = require("./orch.json");
+            console.log(`orchestrationId : ${m.orchestrationId}`);
+            console.log(`created         : ${m.created}`);
+            console.log(`machines        : ${m.machines}`);
+            console.log(`workers         : ${m.workers}`);
+            console.log(`fullyParallel   : ${m.fullyParallel}`);
+            console.log(`specCount       : ${m.specCount}`);
+          '
+
+          {
+            echo "orchestration-id=$id"
+            echo "spec-count=$(node -p "require('./orch.json').specCount")"
+            echo "machines=$(node -p "require('./orch.json').machines")"
+            # The matrix comes from the same number the mint used, so the machine
+            # count and the job count cannot disagree.
+            echo "machine-indices=$(node -p "JSON.stringify(Array.from({length: require('./orch.json').machines}, (_, i) => i + 1))")"
+          } >> "$GITHUB_OUTPUT"
+
+      # The dispatch ledger: every (file, project) unit the mint knows about.
+      # Diff it against what the machines actually ran to prove nothing was
+      # dispatched twice and nothing was missed.
+      - name: Upload mint response
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: orchestration-mint
+          path: orch.json
+          retention-days: 7
+
+  run:
+    name: Machine ${{ matrix.machineIndex }}
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      options: --user 1001
+    strategy:
+      # Do NOT cancel siblings on one machine's failure — a cancelled machine
+      # abandons its leased batch, which then sits unclaimed until lease TTL
+      # (no reclaim-on-cancel yet; see ISSUE.md ORCH-17/18).
+      fail-fast: false
+      matrix:
+        machineIndex: ${{ fromJSON(needs.discover.outputs.machine-indices) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Join orchestration + run assigned batches
+        env:
+          DOTENV_CONFIG_QUIET: 'true'
+          ORCH_ID: ${{ needs.discover.outputs.orchestration-id }}
+          ORCH_DEBUG: ${{ inputs.debug }}
+          DEVICE_ID: machine-${{ matrix.machineIndex }}-${{ github.run_id }}
+        # --project is NOT echoed back by the hub the way --grep is; batch args are
+        # [passthrough, grep, specs]. Without it here, an assigned spec would run
+        # under every project that matches it, not the one it was discovered under.
+        run: |
+          set -euo pipefail
+          args=(--orchestration-id "$ORCH_ID" --device-id "$DEVICE_ID")
+          if [ "$ORCH_DEBUG" = "true" ]; then args+=(--debug); fi
+          npx tdpw orchestrate run "${args[@]}" --project "$PW_PROJECT"
+
+      # Each batch is spawned as `playwright test --reporter @testdino/playwright`,
+      # which replaces the reporter list from playwright.config.ts — so an
+      # orchestrated run produces no playwright-report/, only test-results/.
+      - name: Upload machine artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: orchestration-machine-${{ matrix.machineIndex }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  summary:
+    name: Summary
+    needs: [discover, run]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report what to check
+        run: |
+          {
+            echo "### Orchestration \`${{ needs.discover.outputs.orchestration-id }}\`"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Specs discovered | ${{ needs.discover.outputs.spec-count }} |"
+            echo "| Machines | ${{ needs.discover.outputs.machines }} |"
+            echo "| Grep | \`${{ inputs.grep || '(none)' }}\` |"
+            echo "| Machine jobs | ${{ needs.run.result }} |"
+            echo
+            echo "Check on TestDino staging:"
+            echo "- **one** run, not ${{ needs.discover.outputs.machines }} — total tests come from discovery, not from any single reporter"
+            echo "- every test attributed to the machine that ran it"
+            echo "- no spec dispatched twice and none missed (diff against the \`orchestration-mint\` artifact)"
+            echo "- if a machine died: run finalizes \`incomplete\` with its files in \`could_not_execute_specs\`, never green"
+          } >> "$GITHUB_STEP_SUMMARY"

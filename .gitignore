@@ -18,3 +18,6 @@ node_modules/
 # Local / OS
 /package/
 .DS_Store
+
+# TestDino orchestration mint response (tdpw orchestrate discover --out)
+/orchestration.mint.json

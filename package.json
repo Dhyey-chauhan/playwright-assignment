@@ -11,7 +11,9 @@
     "test:coverage:v8": "COVERAGE=true COVERAGE_MODE=v8 npx tdpw test --coverage --project=coverage",
     "test:coverage:low": "COVERAGE=true TESTDINO_TAGS=coverage,low npx tdpw test --coverage --project=coverage --ci-run-id coverage-low --grep @coverage-low",
     "test:coverage:mid": "COVERAGE=true TESTDINO_TAGS=coverage,mid npx tdpw test --coverage --project=coverage --ci-run-id coverage-mid --grep @coverage-mid",
-    "test:coverage:high": "COVERAGE=true TESTDINO_TAGS=coverage,high npx tdpw test --coverage --project=coverage --ci-run-id coverage-high --grep @coverage-high"
+    "test:coverage:high": "COVERAGE=true TESTDINO_TAGS=coverage,high npx tdpw test --coverage --project=coverage --ci-run-id coverage-high --grep @coverage-high",
+    "orchestrate:discover": "node --env-file-if-exists=.env node_modules/.bin/tdpw orchestrate discover --project chromium --out orchestration.mint.json",
+    "orchestrate:run": "node --env-file-if-exists=.env node_modules/.bin/tdpw orchestrate run"
   },
   "keywords": [],
   "author": "",
@@ -19,7 +21,7 @@
   "type": "commonjs",
   "devDependencies": {
     "@playwright/test": "1.59.1",
-    "@testdino/playwright": "^2.4.0",
+    "@testdino/playwright": "file:testdino-playwright-2.4.0.tgz",
     "@types/node": "^25.6.2",
     "dotenv": "^17.4.2",
     "v8-to-istanbul": "^9.3.0"
