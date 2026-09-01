@@ -141,7 +141,7 @@ jobs:
           ORCH_DEBUG: ${{ inputs.debug }}
         run: |
           set -euo pipefail
-          args=(--machines "$ORCH_MACHINES" --project "$PW_PROJECT")
+          args=(--machines "$ORCH_MACHINES" --project="$PW_PROJECT")
           if [ -n "$ORCH_GREP" ]; then args+=(--grep "$ORCH_GREP"); fi
           if [ "$ORCH_DEBUG" = "true" ]; then args+=(--debug); fi
           npx tdpw orchestrate discover "${args[@]}" --out orch.json
@@ -222,11 +222,16 @@ jobs:
         # --project is NOT echoed back by the hub the way --grep is; batch args are
         # [passthrough, grep, specs]. Without it here, an assigned spec would run
         # under every project that matches it, not the one it was discovered under.
+        #
+        # It MUST use the = form. Playwright declares --project as variadic
+        # (<name...>), so the space form swallows every argument that follows —
+        # and the specs are appended after the passthrough args, so each batch
+        # dies with: Project(s) "part-1/add-to-cart.spec.ts" not found.
         run: |
           set -euo pipefail
           args=(--orchestration-id "$ORCH_ID" --device-id "$DEVICE_ID")
           if [ "$ORCH_DEBUG" = "true" ]; then args+=(--debug); fi
-          npx tdpw orchestrate run "${args[@]}" --project "$PW_PROJECT"
+          npx tdpw orchestrate run "${args[@]}" --project="$PW_PROJECT"
 
       # Each batch is spawned as `playwright test --reporter @testdino/playwright`,
       # which replaces the reporter list from playwright.config.ts — so an
