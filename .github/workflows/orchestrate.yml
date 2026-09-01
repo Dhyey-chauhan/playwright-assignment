@@ -14,9 +14,13 @@ on:
       grep:
         description: >-
           Playwright --grep applied at discovery and echoed back to every batch.
-          Also the escape hatch for a 409: re-minting the same commit with a
-          different machine count is a contract violation, but a different grep
-          is a different suite fingerprint, so it mints clean.
+          Leave empty for the whole chromium suite (12 spec files). Tags that
+          exist in this repo, by file count: @regression (7), @critical (6),
+          @smoke (5), @status-coverage (4). A tag no test carries — @orchestration,
+          say — filters everything out and discovery aborts rather than minting an
+          empty queue. Also the escape hatch for a 409: re-minting the same commit
+          with a different machine count is a contract violation, but a different
+          grep is a different suite fingerprint, so it mints clean.
         type: string
         default: ''
       debug:
