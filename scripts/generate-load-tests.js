@@ -28,8 +28,8 @@ const OUT = path.join(__dirname, '..', 'tests', 'regression');
 // file i to shard (i % shards), so a modulo weight would hand one shard every
 // heavy file and make the baseline pathologically slow rather than merely uneven.
 const weightOf = i => ((i * i + 3 * i + 7) % 8);
-const waitMs = w => 520 + w * 330;          // 520ms .. 2.83s
-const WORK_MS = 250;                         // real interaction + assertion cost
+const waitMs = w => 400 + w * 260;          // 400ms .. 2.22s
+const WORK_MS = 520;                         // measured: real interaction + assertion cost
 
 // outcome mix, spread across each file so every shard sees all four kinds
 const outcomeOf = (i, t) => {
@@ -117,8 +117,9 @@ for (let i = 1; i <= FILES; i++) {
     const kind = outcomeOf(i, t);
     counts[kind]++;
     out += bodies[kind](id, t, w);
-    // skips cost nothing; flaky runs twice
-    cost += kind === 'skip' ? 0 : (waitMs(w) + WORK_MS) * (kind === 'flaky' ? 2 : 1);
+    // skips cost nothing; retries:1 means BOTH flaky and failing tests run twice
+    const attempts = kind === 'skip' ? 0 : (kind === 'flaky' || kind === 'fail') ? 2 : 1;
+    cost += (waitMs(w) + WORK_MS) * attempts;
   }
   fileCost.push(cost);
   fs.writeFileSync(
