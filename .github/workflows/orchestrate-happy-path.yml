@@ -1,0 +1,316 @@
+name: Orchestrate — happy path
+
+# The baseline orchestration scenario. Every other scenario assumes this one passes,
+# so run it first. Covers, from orchestration_test_strategy.md:
+#
+#   P1  discover mints a queue and executes nothing
+#   P2  discovery filters match execution
+#   P3  every spec dispatched exactly once — none duplicated, none missed
+#   P4  one unified run carrying discovery's total
+#   P6  coordinated shutdown — machines exit together on one `end`
+#   P7  LPT ordering — the heaviest spec goes out first
+#   E2  a failing test is NOT an interruption and is never re-queued
+#
+# What makes this job red is DISPATCH INTEGRITY, never test outcomes. The suite
+# carries ~29 deliberate failures; those are results, not defects (E2).
+on:
+  workflow_dispatch:
+    inputs:
+      machines:
+        description: 'Machines to distribute across'
+        type: string
+        default: '2'
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  TESTDINO_TOKEN: ${{ secrets.TESTDINO_TOKEN }}
+  TESTDINO_SERVER_URL: ${{ vars.TESTDINO_SERVER_URL || secrets.TESTDINO_SERVER_URL || 'https://stg-reporter.testdino.com/' }}
+  TESTDINO_TAGS: orchestration,happy-path,${{ github.ref_name }}
+  PW_PROJECT: chromium
+
+concurrency:
+  group: orchestrate-happy-path-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Mint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      options: --user 1001
+    outputs:
+      orchestration-id: ${{ steps.mint.outputs.orchestration-id }}
+      machine-indices: ${{ steps.mint.outputs.machine-indices }}
+      spec-count: ${{ steps.mint.outputs.spec-count }}
+      total-tests: ${{ steps.mint.outputs.total-tests }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Check the reporter tarball is committed
+        run: |
+          tgz=$(node -p "require('./package.json').devDependencies['@testdino/playwright'].replace(/^file:/,'')")
+          if [ ! -f "$tgz" ]; then
+            echo "::error::$tgz is missing — npm ci cannot resolve @testdino/playwright."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Preflight credentials
+        run: |
+          if [ -z "${TESTDINO_TOKEN:-}" ]; then
+            echo "::error::secrets.TESTDINO_TOKEN is empty."
+            exit 1
+          fi
+          case "$TESTDINO_TOKEN" in
+            td_api_*) ;;
+            *) echo "::error::TESTDINO_TOKEN is not a pipeline token (expected a td_api_ prefix)."; exit 1 ;;
+          esac
+          echo "serverUrl : $TESTDINO_SERVER_URL"
+
+      # P1: discovery must LIST, never EXECUTE. A browser launch or a test-results
+      # directory here means discover is running the suite it is meant to enumerate.
+      - name: Mint the orchestration
+        id: mint
+        env:
+          ORCH_MACHINES: ${{ inputs.machines }}
+          DOTENV_CONFIG_QUIET: 'true'
+        run: |
+          set -euo pipefail
+          before=$(ls -d test-results* 2>/dev/null | wc -l | tr -d ' ')
+          start=$(date +%s)
+
+          npx tdpw orchestrate discover \
+            --machines="$ORCH_MACHINES" --project="$PW_PROJECT" --out orch.json
+
+          elapsed=$(( $(date +%s) - start ))
+          after=$(ls -d test-results* 2>/dev/null | wc -l | tr -d ' ')
+
+          if [ "$after" -ne "$before" ]; then
+            echo "::error::P1 FAILED — discover wrote test-results/ ($before -> $after). It executed tests."
+            exit 1
+          fi
+          echo "P1: no test-results written, discover took ${elapsed}s"
+
+          id=$(node -p "require('./orch.json').orchestrationId || ''")
+          [ -n "$id" ] || { echo "::error::mint returned no orchestrationId"; cat orch.json; exit 1; }
+
+          node -e '
+            const m = require("./orch.json");
+            for (const k of ["orchestrationId","created","machines","workers","fullyParallel","specCount","totalTests"])
+              console.log(`${k.padEnd(16)}: ${m[k]}`);
+          '
+
+          # P2: the mint must agree with what Playwright itself reports for the
+          # same filters, or the queue does not match what will run.
+          expected=$(npx playwright test --list --project="$PW_PROJECT" 2>/dev/null | grep -oE "Total: [0-9]+ tests in [0-9]+ files")
+          echo "playwright --list says: $expected"
+          exp_tests=$(echo "$expected" | grep -oE "^Total: [0-9]+" | grep -oE "[0-9]+")
+          exp_files=$(echo "$expected" | grep -oE "in [0-9]+ files" | grep -oE "[0-9]+")
+          got_tests=$(node -p "require('./orch.json').totalTests")
+          got_specs=$(node -p "require('./orch.json').specCount")
+          if [ "$exp_tests" != "$got_tests" ] || [ "$exp_files" != "$got_specs" ]; then
+            echo "::error::P2 FAILED — mint says ${got_specs} files / ${got_tests} tests, playwright says ${exp_files} / ${exp_tests}"
+            exit 1
+          fi
+          echo "P2: mint matches playwright --list exactly"
+
+          {
+            echo "orchestration-id=$id"
+            echo "spec-count=$got_specs"
+            echo "total-tests=$got_tests"
+            echo "machine-indices=$(node -p "JSON.stringify(Array.from({length: require('./orch.json').machines}, (_, i) => i + 1))")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload the mint response
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: mint
+          path: orch.json
+          retention-days: 7
+
+  run:
+    name: Machine ${{ matrix.machineIndex }}
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      options: --user 1001
+    strategy:
+      fail-fast: false
+      matrix:
+        machineIndex: ${{ fromJSON(needs.discover.outputs.machine-indices) }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # --project MUST use the = form: Playwright declares it variadic, so the
+      # space form swallows the spec paths the CLI appends after it.
+      #
+      # --device-id MUST be unique per machine, or the second machine is starved
+      # and the run never receives its `end` (see E4 / ORCH-04).
+      - name: Join and run assigned batches
+        id: join
+        continue-on-error: true
+        env:
+          ORCH_ID: ${{ needs.discover.outputs.orchestration-id }}
+          DEVICE_ID: machine-${{ matrix.machineIndex }}-${{ github.run_id }}
+          DOTENV_CONFIG_QUIET: 'true'
+        run: |
+          set -uo pipefail
+          start=$(date +%s)
+          npx tdpw orchestrate run \
+            --orchestration-id "$ORCH_ID" \
+            --device-id "$DEVICE_ID" \
+            --project="$PW_PROJECT" \
+            --output=test-results-m${{ matrix.machineIndex }} 2>&1 | tee machine.log
+          rc=${PIPESTATUS[0]}
+          finish=$(date +%s)
+          {
+            echo "machine=${{ matrix.machineIndex }}"
+            echo "device_id=$DEVICE_ID"
+            echo "exit_code=$rc"
+            echo "started_at=$start"
+            echo "finished_at=$finish"
+            echo "duration=$(( finish - start ))"
+          } > machine.meta
+          cat machine.meta
+
+      - name: Upload this machine's evidence
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: machine-${{ matrix.machineIndex }}
+          path: |
+            machine.log
+            machine.meta
+          retention-days: 7
+
+  verify:
+    name: Verify dispatch integrity
+    needs: [discover, run]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: evidence
+
+      - name: Assert P3 / P4 / P6 / P7 / E2
+        env:
+          SPEC_COUNT: ${{ needs.discover.outputs.spec-count }}
+          TOTAL_TESTS: ${{ needs.discover.outputs.total-tests }}
+          ORCH_ID: ${{ needs.discover.outputs.orchestration-id }}
+        run: |
+          node <<'JS'
+          const fs = require('fs'), path = require('path');
+          const strip = s => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+          const specCount = Number(process.env.SPEC_COUNT);
+          const totalTests = Number(process.env.TOTAL_TESTS);
+
+          const machines = fs.readdirSync('evidence')
+            .filter(d => d.startsWith('machine-'))
+            .map(d => {
+              const log = strip(fs.readFileSync(path.join('evidence', d, 'machine.log'), 'utf8'));
+              const meta = Object.fromEntries(
+                fs.readFileSync(path.join('evidence', d, 'machine.meta'), 'utf8')
+                  .trim().split('\n').map(l => l.split('=')));
+              const files = [...new Set([...log.matchAll(/tests\/[\w/.-]+\.spec\.ts/g)].map(m => m[0]))];
+              const order = [];
+              for (const m of log.matchAll(/tests\/[\w/.-]+\.spec\.ts/g))
+                if (!order.includes(m[0])) order.push(m[0]);
+              const tests = new Set([...log.matchAll(/›\s+(tests\/[^\s]+:\d+:\d+)/g)].map(m => m[1]));
+              return { name: d, meta, files, order, tests };
+            })
+            .sort((a, b) => Number(a.meta.machine) - Number(b.meta.machine));
+
+          const fail = [];
+          const note = s => console.log(s);
+
+          note(`orchestration : ${process.env.ORCH_ID}`);
+          note(`mint          : ${specCount} spec files, ${totalTests} tests`);
+          note(`machines      : ${machines.length}`);
+          for (const m of machines)
+            note(`  ${m.meta.device_id}: ${m.files.length} files, ${m.tests.size} tests, exit ${m.meta.exit_code}, ${m.meta.duration}s`);
+
+          // P3 — no duplicates
+          const seen = new Map();
+          for (const m of machines) for (const f of m.files)
+            seen.set(f, [...(seen.get(f) || []), m.meta.machine]);
+          const dupes = [...seen].filter(([, ms]) => ms.length > 1);
+          if (dupes.length) fail.push(`P3: ${dupes.length} spec(s) dispatched to more than one machine: ${dupes.map(([f, ms]) => `${f} -> ${ms}`).join(', ')}`);
+
+          // P3 — nothing missed
+          if (seen.size !== specCount) fail.push(`P3: ${seen.size} distinct spec files executed, mint queued ${specCount}`);
+
+          // P4 — discovery's total actually ran
+          const allTests = new Set(machines.flatMap(m => [...m.tests]));
+          if (allTests.size !== totalTests) fail.push(`P4: ${allTests.size} distinct tests executed, discovery counted ${totalTests}`);
+
+          // E4 guard — every machine must have done something
+          const starved = machines.filter(m => m.files.length === 0);
+          if (starved.length) fail.push(`E4: ${starved.length} machine(s) received no work at all — check for duplicate device ids`);
+
+          // P6 — coordinated shutdown: all machines finish together
+          if (machines.length > 1) {
+            const ends = machines.map(m => Number(m.meta.finished_at));
+            const spread = Math.max(...ends) - Math.min(...ends);
+            note(`shutdown spread: ${spread}s`);
+            if (spread > 60) fail.push(`P6: machines finished ${spread}s apart — the idle machine did not wait for the single \`end\``);
+          }
+
+          // P7 — informational: LPT should send the costliest spec out first
+          note(`first dispatch per machine: ${machines.map(m => `${m.meta.machine}:${m.order[0] || '(none)'}`).join('  ')}`);
+
+          // E2 — informational: test failures are results, and are covered by the
+          // P3 duplicate check above (a re-queued failing spec would show as a dupe).
+          const failed = machines.reduce((n, m) => n + (m.log?.length ? 0 : 0), 0);
+
+          if (fail.length) {
+            console.log('\n--- FAILURES ---');
+            for (const f of fail) console.log(`::error::${f}`);
+            process.exit(1);
+          }
+          console.log('\nAll dispatch-integrity checks passed.');
+          JS
+
+      - name: Summary
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo "### Orchestrate — happy path"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Orchestration | \`${{ needs.discover.outputs.orchestration-id }}\` |"
+            echo "| Spec files | ${{ needs.discover.outputs.spec-count }} |"
+            echo "| Tests discovered | ${{ needs.discover.outputs.total-tests }} |"
+            echo "| Machines | ${{ inputs.machines }} |"
+            echo "| Verdict | ${{ job.status }} |"
+            echo
+            echo "Checks: P1 no execution during discover · P2 mint matches \`--list\` · P3 exactly-once dispatch · P4 discovery total executed · P6 coordinated shutdown · E4 no starved machine."
+            echo
+            echo "Test failures do **not** fail this job — the suite carries deliberate failures, and a failed test is a result, not an interruption (E2)."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,140 @@
+name: Load — A. baseline (native sharding, no orchestration)
+
+# Run this FIRST. It is the control for the orchestration comparison:
+# the same 1000-test @load suite, the same parallelism (8 ways x 4 workers),
+# split by Playwright's own count-based --shard.
+#
+# Native sharding is duration-blind: it chops the file list into 8 equal piles
+# regardless of how long each file takes. The @load suite has deliberately
+# uneven file costs (weights 0-4), so the slowest shard should finish well after
+# the fastest — that idle gap is exactly what orchestration is meant to remove.
+#
+# Compare the "wall clock" figure in this job summary with workflow B.
+on:
+  workflow_dispatch:
+    inputs:
+      shards:
+        description: 'Number of shards'
+        type: string
+        default: '8'
+      workers:
+        description: 'Workers per shard'
+        type: string
+        default: '4'
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  TESTDINO_TOKEN: ${{ secrets.TESTDINO_TOKEN }}
+  TESTDINO_SERVER_URL: ${{ vars.TESTDINO_SERVER_URL || secrets.TESTDINO_SERVER_URL || 'https://stg-reporter.testdino.com/' }}
+  TESTDINO_TAGS: load,baseline-sharded,${{ github.ref_name }}
+  PW_WORKERS: ${{ inputs.workers }}
+
+concurrency:
+  group: load-baseline-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  shard:
+    name: Shard ${{ matrix.shard }}/${{ inputs.shards }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      options: --user 1001
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Every shard shares one --ci-run-id, so the 8 shards report as ONE run —
+      # the same shape orchestration produces, which keeps the comparison honest.
+      - name: Run shard
+        id: shard
+        continue-on-error: true
+        env:
+          DOTENV_CONFIG_QUIET: 'true'
+        run: |
+          set -uo pipefail
+          start=$(date +%s)
+          npx tdpw test --ci-run-id "sharded-${{ github.run_id }}" \
+            -- --project=chromium --grep '@load' \
+               --shard=${{ matrix.shard }}/${{ inputs.shards }} \
+               --workers=${{ inputs.workers }} \
+               --output=test-results-s${{ matrix.shard }} 2>&1 | tee shard.log
+          rc=${PIPESTATUS[0]}
+          finish=$(date +%s)
+          {
+            echo "unit=${{ matrix.shard }}"
+            echo "exit_code=$rc"
+            echo "started_at=$start"
+            echo "finished_at=$finish"
+            echo "duration=$(( finish - start ))"
+            echo "tests=$(grep -oE '[0-9]+ passed' shard.log | head -1 | grep -oE '[0-9]+' || echo 0)"
+          } > shard.meta
+          cat shard.meta
+
+      - name: Upload shard evidence
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: shard-${{ matrix.shard }}
+          path: |
+            shard.log
+            shard.meta
+          retention-days: 7
+
+  summary:
+    name: Wall clock
+    needs: shard
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: evidence
+
+      - name: Report the idle gap
+        run: |
+          node <<'JS' >> "$GITHUB_STEP_SUMMARY"
+          const fs = require('fs'), path = require('path');
+          const units = fs.readdirSync('evidence').filter(d => d.startsWith('shard-')).map(d => {
+            const m = Object.fromEntries(fs.readFileSync(path.join('evidence', d, 'shard.meta'), 'utf8')
+              .trim().split('\n').map(l => l.split('=')));
+            return { unit: Number(m.unit), dur: Number(m.duration), tests: Number(m.tests),
+                     start: Number(m.started_at), end: Number(m.finished_at), rc: m.exit_code };
+          }).sort((a, b) => a.unit - b.unit);
+
+          const wall = Math.max(...units.map(u => u.end)) - Math.min(...units.map(u => u.start));
+          const busy = units.reduce((n, u) => n + u.dur, 0);
+          const slowest = Math.max(...units.map(u => u.dur));
+          const fastest = Math.min(...units.map(u => u.dur));
+
+          console.log('### A. Baseline — native sharding\n');
+          console.log('| Shard | Tests | Duration | Idle after finishing |');
+          console.log('| --- | ---: | ---: | ---: |');
+          for (const u of units) console.log(`| ${u.unit} | ${u.tests} | ${u.dur}s | ${slowest - u.dur}s |`);
+          console.log('');
+          console.log('| | |');
+          console.log('| --- | ---: |');
+          console.log(`| **Wall clock** | **${wall}s** |`);
+          console.log(`| Slowest shard | ${slowest}s |`);
+          console.log(`| Fastest shard | ${fastest}s |`);
+          console.log(`| Spread (wasted parallelism) | ${slowest - fastest}s |`);
+          console.log(`| Total busy time | ${busy}s |`);
+          console.log(`| Efficiency | ${Math.round((busy / (units.length * slowest)) * 100)}% |`);
+          console.log('');
+          console.log('The **spread** is the point: every shard that finishes early sits idle until the slowest one lands. Orchestration (workflow B) should shrink it.');
+          JS

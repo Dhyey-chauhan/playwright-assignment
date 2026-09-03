@@ -73,7 +73,10 @@ export default defineConfig({
   testIgnore: ['**/coverage.spec.ts', '**/part-3/interrupted/**'],
   fullyParallel: false,
   retries: 0,
-  workers: 1,
+  // `orchestrate discover` reads W from THIS file, not from the CLI — a --workers
+  // flag at run time would diverge from what the queue was sized for. Keeping it
+  // env-driven lets the sharded and orchestrated workflows agree on W=4.
+  workers: Number(process.env.PW_WORKERS ?? 1),
   reporter: [
     ['list'],
     ['html', { open: 'never' }],
