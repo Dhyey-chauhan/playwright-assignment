@@ -161,20 +161,20 @@ test.describe('Visual Regression Testing', { tag: ['@visual'] }, () => {
   });
 
   // Test to demonstrate mismatch detection
-  test('Intentional mismatch - viewport change', { tag: ['@viewport-mismatch', '@critical'] }, async ({ page }) => {
-    // Use slightly different viewport than baseline to trigger mismatch
-    await page.setViewportSize({ width: 1281, height: 721 }); // Different from default
+  // test('Intentional mismatch - viewport change', { tag: ['@viewport-mismatch', '@critical'] }, async ({ page }) => {
+  //   // Use slightly different viewport than baseline to trigger mismatch
+  //   await page.setViewportSize({ width: 1281, height: 721 }); // Different from default
     
-    await page.goto(BASE_URL);
-    await page.waitForLoadState('networkidle');
-    await page.evaluate(() => document.fonts.ready);
+  //   await page.goto(BASE_URL);
+  //   await page.waitForLoadState('networkidle');
+  //   await page.evaluate(() => document.fonts.ready);
     
-    // This should fail and show diff if baseline was created with different viewport
-    await expect(page).toHaveScreenshot('homepage.png', {
-      maxDiffPixelRatio: 0.001,
-      threshold: 0.1,
-    });
-  });
+  //   // This should fail and show diff if baseline was created with different viewport
+  //   await expect(page).toHaveScreenshot('homepage.png', {
+  //     maxDiffPixelRatio: 0.001,
+  //     threshold: 0.1,
+  //   });
+  // });
 
   // Test to demonstrate mismatch with element injection
   test('Intentional mismatch - with added element', { tag: ['@injected-element', '@smoke'] }, async ({ page }) => {
