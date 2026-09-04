@@ -6,6 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      scenario:
+        description: 'failures = evidence specs run and fail (PR comment shows failed rows); all-pass = green run (no evidence section)'
+        type: choice
+        options:
+          - failures
+          - all-pass
+        default: failures
       update_snapshots:
         description: 'Regenerate Linux visual baselines instead of running the suite'
         type: boolean
@@ -38,16 +45,46 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The suite is deliberately narrowed while the PR-comment evidence links are
+      # being verified: a full run is slow and most of it adds no new row shape to
+      # the comment. GREEN_SPECS is a representative slice that always passes
+      # (real storefront flow, network mocking, AI-generated scenarios);
+      # FAILING_SPECS adds the evidence cases plus the status-variety spec
+      # (skipped / fixme / expected-failure / timed out / flaky).
+      #
+      #   scenario = failures (default)  GREEN_SPECS + FAILING_SPECS -> red run,
+      #                                  PR comment must show the evidence section
+      #   scenario = all-pass            GREEN_SPECS only -> green run, PR comment
+      #                                  must stay in its normal shape, no evidence
+      #
+      # push / pull_request events have no input, so they take the default.
       - name: Run Playwright tests
+        shell: bash
         env:
           TESTDINO_TOKEN: ${{ secrets.TESTDINO_TOKEN }}
-          TESTDINO_SERVER_URL: ${{ vars.TESTDINO_SERVER_URL }}
+          # Runs are reported to staging unless the repo variable overrides it.
+          TESTDINO_SERVER_URL: ${{ vars.TESTDINO_SERVER_URL || 'https://stg-reporter.testdino.com/' }}
           # Run-level label on the TestDino run: the PR's source branch, or the
           # branch that was pushed.
           TESTDINO_TAGS: ${{ github.head_ref || github.ref_name }}
           SLACK_ALERT_CHANNEL: ${{ secrets.SLACK_ALERT_CHANNEL }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-        run: npx playwright test
+          SCENARIO: ${{ inputs.scenario || 'failures' }}
+        run: |
+          GREEN_SPECS="tests/part-1/add-to-cart.spec.ts \
+            tests/part-1/network-states.spec.ts \
+            tests/part-2/ai-generated.spec.ts"
+          FAILING_SPECS="tests/pr-comment/ \
+            tests/testing/test.faile.spec.ts \
+            tests/part-3/run-status-coverage.spec.ts"
+
+          if [ "$SCENARIO" = "all-pass" ]; then
+            echo "scenario=all-pass -> expecting a fully green run"
+            npx playwright test $GREEN_SPECS
+          else
+            echo "scenario=failures -> expecting failures with trace/screenshot/video evidence"
+            npx playwright test $GREEN_SPECS $FAILING_SPECS
+          fi
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
