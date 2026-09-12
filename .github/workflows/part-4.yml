@@ -2,14 +2,15 @@ name: Part 4
 
 # Manual only — this is a fixture suite, not a gate. It runs nothing but
 # tests/part-4, where 10 tests are built to pass and 10 are built to fail.
+# Both browsers by default, so a full run is 40 executions: 20 passed, 20 failed.
 on:
   workflow_dispatch:
     inputs:
-      project:
-        description: 'Playwright project to run part-4 under'
+      browsers:
+        description: 'Which browsers to run part-4 under'
         type: choice
-        options: ['chromium', 'firefox']
-        default: 'chromium'
+        options: ['chromium + firefox', 'chromium only', 'firefox only']
+        default: 'chromium + firefox'
       subset:
         description: 'Which half to run'
         type: choice
@@ -58,6 +59,14 @@ jobs:
           TESTDINO_TAGS: part-4,${{ github.head_ref || github.ref_name }}
           PW_JSON_REPORT: part-4-report.json
         run: |
+          # --project is repeatable; both browsers land in ONE playwright run and
+          # so in one TestDino run, rather than two disconnected ones.
+          case "${{ inputs.browsers }}" in
+            'chromium only') project_args=(--project=chromium) ;;
+            'firefox only')  project_args=(--project=firefox) ;;
+            *)               project_args=(--project=chromium --project=firefox) ;;
+          esac
+
           case "${{ inputs.subset }}" in
             'passing only') grep_args=(--grep @part-4-pass) ;;
             'failing only') grep_args=(--grep @part-4-fail) ;;
@@ -65,7 +74,7 @@ jobs:
           esac
 
           npx playwright test tests/part-4 \
-            --project=${{ inputs.project }} \
+            "${project_args[@]}" \
             "${grep_args[@]}"
 
       - name: Check every outcome against its tag
@@ -75,7 +84,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: part-4-report-${{ inputs.project }}
+          name: part-4-report
           path: |
             playwright-report/
             test-results/
