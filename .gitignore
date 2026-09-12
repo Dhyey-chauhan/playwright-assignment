@@ -21,3 +21,9 @@ node_modules/
 
 # TestDino orchestration mint response (tdpw orchestrate discover --out)
 /orchestration.mint.json
+
+# MCP server config (contains TestDino PAT)
+.mcp.json
+
+# part-4 machine-readable summary (PW_JSON_REPORT)
+/part-4-report.json
