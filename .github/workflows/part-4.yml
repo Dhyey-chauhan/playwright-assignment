@@ -1,20 +1,14 @@
 name: Part 4
 
 # Manual only — this is a fixture suite, not a gate. It runs nothing but
-# tests/part-4, where 10 tests are built to pass and 10 are built to fail.
+# tests/part-4, under chromium AND firefox, where 10 tests are built to pass
+# and 10 are built to fail. A full run is 40 executions: 20 passed, 20 failed.
+#
+# No workflow_dispatch inputs on purpose: every input GitHub sees becomes a
+# form field on the "Run workflow" button, and there is nothing here worth
+# choosing. Press the button, get the whole suite in both browsers.
 on:
   workflow_dispatch:
-    inputs:
-      project:
-        description: 'Playwright project to run part-4 under'
-        type: choice
-        options: ['chromium', 'firefox']
-        default: 'chromium'
-      subset:
-        description: 'Which half to run'
-        type: choice
-        options: ['all (10 pass + 10 fail)', 'passing only', 'failing only']
-        default: 'all (10 pass + 10 fail)'
 
 defaults:
   run:
@@ -27,9 +21,9 @@ concurrency:
 jobs:
   part-4:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     # Pinned to the installed @playwright/test version so the runner image can't
-    # drift out from under the suite.
+    # drift out from under the suite. Ships chromium and firefox already.
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
       options: --user 1001
@@ -45,28 +39,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Ten of these tests fail on purpose, so playwright exits non-zero on a
+      # Ten tests per browser fail on purpose, so playwright exits non-zero on a
       # healthy run. The exit code is ignored here and the real check happens in
-      # the next step, which compares each test's outcome to its
-      # @part-4-pass / @part-4-fail tag.
+      # the next step, which compares every test's outcome to its
+      # @part-4-pass / @part-4-fail tag, per browser.
+      #
+      # --project is repeatable, so both browsers land in ONE playwright run and
+      # therefore one TestDino run, rather than two disconnected ones.
       - name: Run part-4
-        id: run
         continue-on-error: true
         env:
           TESTDINO_TOKEN: ${{ secrets.TESTDINO_TOKEN }}
           TESTDINO_SERVER_URL: ${{ vars.TESTDINO_SERVER_URL }}
           TESTDINO_TAGS: part-4,${{ github.head_ref || github.ref_name }}
           PW_JSON_REPORT: part-4-report.json
-        run: |
-          case "${{ inputs.subset }}" in
-            'passing only') grep_args=(--grep @part-4-pass) ;;
-            'failing only') grep_args=(--grep @part-4-fail) ;;
-            *)              grep_args=() ;;
-          esac
-
-          npx playwright test tests/part-4 \
-            --project=${{ inputs.project }} \
-            "${grep_args[@]}"
+        run: npx playwright test tests/part-4 --project=chromium --project=firefox
 
       - name: Check every outcome against its tag
         run: node scripts/verify-part-4-outcomes.js part-4-report.json
@@ -75,7 +62,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: part-4-report-${{ inputs.project }}
+          name: part-4-report
           path: |
             playwright-report/
             test-results/

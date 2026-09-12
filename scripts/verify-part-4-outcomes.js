@@ -7,6 +7,10 @@
 // outcome matches the @part-4-pass / @part-4-fail tag in its title. An intended
 // failure that starts passing is just as much a regression as the reverse.
 //
+// The suite runs under more than one project (chromium + firefox), so the check
+// is per BROWSER, not per spec — a test that passes in chromium and fails in
+// firefox has to be reported, and collapsing the two would hide exactly that.
+//
 // Usage: node scripts/verify-part-4-outcomes.js <playwright-json-report>
 
 const fs = require('fs');
@@ -37,11 +41,9 @@ if (specs.length === 0) {
 }
 
 const mismatches = [];
-let expectedPass = 0;
-let expectedFail = 0;
+const tally = {}; // projectName -> { pass, fail }
 
 for (const spec of specs) {
-  // A spec repeats per project; spec.ok is false if any projection failed.
   const wantsPass = spec.title.includes('@part-4-pass');
   const wantsFail = spec.title.includes('@part-4-fail');
 
@@ -50,18 +52,32 @@ for (const spec of specs) {
     continue;
   }
 
-  if (wantsPass) expectedPass += 1;
-  else expectedFail += 1;
+  // One entry per project the spec ran under.
+  for (const test of spec.tests || []) {
+    const project = test.projectName || 'unknown';
+    tally[project] = tally[project] || { pass: 0, fail: 0 };
+    tally[project][wantsPass ? 'pass' : 'fail'] += 1;
 
-  if (wantsPass && !spec.ok) {
-    mismatches.push(`REGRESSED ${spec.title} — tagged @part-4-pass but FAILED`);
-  }
-  if (wantsFail && spec.ok) {
-    mismatches.push(`STOPPED FAILING ${spec.title} — tagged @part-4-fail but PASSED`);
+    const last = (test.results || [])[(test.results || []).length - 1];
+    const outcome = last ? last.status : 'never ran';
+    const didPass = outcome === 'passed';
+
+    if (wantsPass && !didPass) {
+      mismatches.push(`REGRESSED [${project}] ${spec.title} — tagged @part-4-pass but ${outcome}`);
+    }
+    if (wantsFail && didPass) {
+      mismatches.push(`STOPPED FAILING [${project}] ${spec.title} — tagged @part-4-fail but passed`);
+    }
   }
 }
 
-console.log(`part-4: ${specs.length} tests — ${expectedPass} expected to pass, ${expectedFail} expected to fail`);
+const projects = Object.keys(tally).sort();
+const total = projects.reduce((n, p) => n + tally[p].pass + tally[p].fail, 0);
+
+console.log(`part-4: ${total} test runs across ${projects.length} project(s)`);
+for (const project of projects) {
+  console.log(`  ${project}: ${tally[project].pass} expected to pass, ${tally[project].fail} expected to fail`);
+}
 
 if (mismatches.length > 0) {
   console.error('\nOutcome did not match the tag:\n');
@@ -69,4 +85,4 @@ if (mismatches.length > 0) {
   process.exit(1);
 }
 
-console.log('Every part-4 test ended exactly as its tag requires.');
+console.log('Every part-4 test ended exactly as its tag requires, in every project.');
