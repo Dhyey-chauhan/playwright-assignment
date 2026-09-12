@@ -80,6 +80,15 @@ export default defineConfig({
   reporter: [
     ['list'],
     ['html', { open: 'never' }],
+    // Machine-readable summary, off unless PW_JSON_REPORT names an output file.
+    // The part-4 workflow sets it so it can assert each test's outcome against
+    // the @part-4-pass / @part-4-fail tag in its title. Env-gated so it stays
+    // inert for every other run, and added HERE rather than via --reporter on
+    // the CLI, which would replace this whole array and drop the TestDino
+    // reporter below.
+    ...(process.env.PW_JSON_REPORT
+      ? [['json', { outputFile: process.env.PW_JSON_REPORT }] as const]
+      : []),
     ['@testdino/playwright', {
       token: process.env.TESTDINO_TOKEN,
       serverUrl: testdinoServerUrl,
@@ -125,6 +134,14 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+    // Second engine, for exercising multi-project orchestration. The visual specs
+    // compare against *-chromium-darwin.png baselines, so they are chromium-only
+    // by construction and excluded here.
+    {
+      name: 'firefox',
+      testIgnore: ['**/visual-*.spec.ts'],
+      use: { ...devices['Desktop Firefox'] },
     },
     {
       name: 'coverage',
