@@ -1,95 +1,84 @@
 import { test, expect } from '@playwright/test';
-import { STORE_HTML, PRODUCTS } from './store-fixture';
+import { STORE_HTML } from './store-fixture';
 
-// The 10 tests that MUST pass. Every assertion here is checked against the
-// fixture in store-fixture.ts, so a failure in this file is a real regression
-// (or a broken fixture) — never an intended outcome.
+// The 10 tests that MUST fail.
+//
+// These are INTENTIONAL failures — do not "fix" them. Each one fails for a
+// DIFFERENT reason so the resulting run carries ten distinct error signatures
+// rather than ten copies of one, which is what makes it useful for exercising
+// failure-analysis / grouped-by-cause reporting downstream.
+//
+// Waits are pinned to 3s so the whole failing half finishes in well under a
+// minute instead of burning the default 5s timeout ten times over.
+//
+//   F01 assertion · text      F06 assertion · value
+//   F02 assertion · count     F07 assertion · state
+//   F03 timeout · missing     F08 timeout · hidden
+//   F04 strict mode           F09 exception
+//   F05 assertion · computed  F10 assertion · url
 
-test.describe('part-4 · passing @part-4 @part-4-pass', () => {
+const WAIT = { timeout: 3000 };
+
+test.describe('part-4 · failing @part-4 @part-4-fail', () => {
   test.beforeEach(async ({ page }) => {
     await page.setContent(STORE_HTML);
   });
 
-  test('P01 · renders the store title and an empty cart @part-4-pass', async ({ page }) => {
-    await expect(page.getByTestId('store-title')).toHaveText('TestDino Store');
-    await expect(page.getByTestId('cart-count')).toHaveText('0');
-    await expect(page.getByTestId('cart-total')).toHaveText('$0');
+  test('F01 · store title assertion mismatch @part-4-fail @assertion', async ({ page }) => {
+    // Real text is "TestDino Store".
+    await expect(page.getByTestId('store-title')).toHaveText('TestDino Superstore', WAIT);
   });
 
-  test('P02 · lists every product with its price @part-4-pass', async ({ page }) => {
-    await expect(page.locator('#catalogue li')).toHaveCount(PRODUCTS.length);
-    for (const product of PRODUCTS) {
-      const row = page.locator(`#catalogue li[data-sku="${product.sku}"]`);
-      await expect(row.locator('.name')).toHaveText(product.name);
-      await expect(row.locator('.price')).toHaveText(`$${product.price}`);
-    }
+  test('F02 · catalogue length assertion mismatch @part-4-fail @assertion', async ({ page }) => {
+    // The fixture ships 4 products.
+    await expect(page.locator('#catalogue li')).toHaveCount(6, WAIT);
   });
 
-  test('P03 · adding one product updates count and total @part-4-pass', async ({ page }) => {
-    await page.click('[data-add="aurora-mug"]');
-    await expect(page.getByTestId('cart-count')).toHaveText('1');
-    await expect(page.getByTestId('cart-total')).toHaveText('$12');
+  test('F03 · waits for an element that never renders @part-4-fail @timeout', async ({ page }) => {
+    // No free-shipping banner exists anywhere in the fixture.
+    await expect(page.getByTestId('free-shipping-banner')).toBeVisible(WAIT);
   });
 
-  test('P04 · adding three products sums the total @part-4-pass', async ({ page }) => {
-    await page.click('[data-add="aurora-mug"]');   // 12
-    await page.click('[data-add="basalt-tee"]');   // 25
-    await page.click('[data-add="cobalt-cap"]');   // 18
-    await expect(page.getByTestId('cart-count')).toHaveText('3');
-    await expect(page.getByTestId('cart-total')).toHaveText('$55');
+  test('F04 · strict mode violation on an ambiguous locator @part-4-fail @strict-mode', async ({ page }) => {
+    // #catalogue holds 8 buttons (add + remove per product), so this resolves
+    // to many and Playwright refuses to guess.
+    await page.locator('#catalogue button').click(WAIT);
   });
 
-  test('P05 · the same product can be added twice @part-4-pass', async ({ page }) => {
-    await page.click('[data-add="drift-hoodie"]');
-    await page.click('[data-add="drift-hoodie"]');
-    await expect(page.getByTestId('cart-count')).toHaveText('2');
-    await expect(page.getByTestId('cart-total')).toHaveText('$80');
+  test('F05 · cart total computed wrong @part-4-fail @assertion', async ({ page }) => {
+    await page.click('[data-add="aurora-mug"]');  // 12
+    await page.click('[data-add="basalt-tee"]');  // 25
+    // Real total is $37.
+    await expect(page.getByTestId('cart-total')).toHaveText('$50', WAIT);
   });
 
-  test('P06 · removing an item decrements the cart @part-4-pass', async ({ page }) => {
-    const remove = page.locator('[data-remove="basalt-tee"]');
-    await expect(remove).toBeDisabled();
-
-    await page.click('[data-add="basalt-tee"]');
-    await expect(remove).toBeEnabled();
-
-    await remove.click();
-    await expect(page.getByTestId('cart-count')).toHaveText('0');
-    await expect(page.getByTestId('cart-total')).toHaveText('$0');
-    await expect(remove).toBeDisabled();
-  });
-
-  test('P07 · search filters the catalogue @part-4-pass', async ({ page }) => {
-    await page.fill('[data-testid="search"]', 'cap');
-    await expect(page.locator('#catalogue li:visible')).toHaveCount(1);
-    await expect(page.locator('#catalogue li:visible .name')).toHaveText('Cobalt Cap');
-  });
-
-  test('P08 · a search with no match reports an empty result @part-4-pass', async ({ page }) => {
-    await page.fill('[data-testid="search"]', 'telescope');
-    await expect(page.locator('#catalogue li:visible')).toHaveCount(0);
-    await expect(page.getByTestId('status')).toHaveText('No products match your search');
-  });
-
-  test('P09 · pay stays disabled until the email is valid @part-4-pass', async ({ page }) => {
-    const pay = page.getByTestId('pay');
-    await expect(pay).toBeDisabled();
-
-    await page.fill('[data-testid="email"]', 'not-an-email');
-    await expect(pay).toBeDisabled();
-
+  test('F06 · email field holds a different value than expected @part-4-fail @assertion', async ({ page }) => {
     await page.fill('[data-testid="email"]', 'buyer@example.com');
-    await expect(pay).toBeEnabled();
+    await expect(page.getByTestId('email')).toHaveValue('shopper@example.com', WAIT);
   });
 
-  test('P10 · checkout confirms the order, and the promo resolves async @part-4-pass', async ({ page }) => {
-    await page.click('[data-testid="apply-promo"]');
-    await expect(page.getByTestId('promo')).toBeVisible();
-    await expect(page.getByTestId('promo')).toHaveText('PROMO10 applied');
+  test('F07 · pay expected enabled while the email is invalid @part-4-fail @assertion', async ({ page }) => {
+    await page.fill('[data-testid="email"]', 'nope');
+    await expect(page.getByTestId('pay')).toBeEnabled(WAIT);
+  });
 
-    await page.click('[data-add="aurora-mug"]');
+  test('F08 · promo expected visible before it is applied @part-4-fail @timeout', async ({ page }) => {
+    // The promo only unhides 300ms after "Apply promo" is clicked, and this
+    // test never clicks it.
+    await expect(page.getByTestId('promo')).toBeVisible(WAIT);
+  });
+
+  test('F09 · unhandled exception parsing the status text @part-4-fail @exception', async ({ page }) => {
+    const raw = await page.getByTestId('status').textContent();
+    // status is empty until an order is placed — JSON.parse('') throws.
+    const parsed = JSON.parse(raw ?? '');
+    expect(parsed).toBeTruthy();
+  });
+
+  test('F10 · expects a checkout URL the page never navigates to @part-4-fail @assertion', async ({ page }) => {
     await page.fill('[data-testid="email"]', 'buyer@example.com');
     await page.click('[data-testid="pay"]');
-    await expect(page.getByTestId('status')).toHaveText('Order placed for buyer@example.com');
+    // Checkout is handled in-page; there is no navigation.
+    await expect(page).toHaveURL(/\/checkout/, WAIT);
   });
 });
