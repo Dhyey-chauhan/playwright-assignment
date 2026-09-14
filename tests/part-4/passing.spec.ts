@@ -24,9 +24,9 @@ test.describe('part-4 · failing @part-4 @part-4-fail', () => {
     await page.setContent(STORE_HTML);
   });
 
-  test('F01 · store title assertion mismatch @part-4-fail @assertion', async ({ page }) => {
+  test('F01 · store title assertion now matches @part-4-pass @assertion', async ({ page }) => {
     // Real text is "TestDino Store".
-    await expect(page.getByTestId('store-title')).toHaveText('TestDino Superstore', WAIT);
+    await expect(page.getByTestId('store-title')).toHaveText('TestDino Store', WAIT);
   });
 
   test('F02 · catalogue length assertion mismatch @part-4-fail @assertion', async ({ page }) => {
