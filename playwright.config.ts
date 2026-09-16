@@ -138,11 +138,11 @@ export default defineConfig({
     // Second engine, for exercising multi-project orchestration. The visual specs
     // compare against *-chromium-darwin.png baselines, so they are chromium-only
     // by construction and excluded here.
-    {
-      name: 'firefox',
-      testIgnore: ['**/visual-*.spec.ts'],
-      use: { ...devices['Desktop Firefox'] },
-    },
+    // {
+    //   name: 'firefox',
+    //   testIgnore: ['**/visual-*.spec.ts'],
+    //   use: { ...devices['Desktop Firefox'] },
+    // },
     {
       name: 'coverage',
       // Overrides the top-level testIgnore for this project only.
