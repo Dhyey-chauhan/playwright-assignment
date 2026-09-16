@@ -131,18 +131,17 @@ export default defineConfig({
     },
   },
   projects: [
-    // Chromium is off on purpose — the suite runs under firefox only for now.
-    // Uncomment to bring it back; the visual specs need it, and so do
-    // suite-baseline-sharded.yml and the orchestrate:discover script, which
-    // both name chromium explicitly.
-    // {
-    //   name: 'chromium',
-    //   use: { ...devices['Desktop Chrome'] },
-    // },
+    // The default engine. suite-baseline-sharded.yml and the
+    // orchestrate:discover script both name it explicitly, so it has to exist.
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Second engine, for exercising multi-project orchestration. The visual specs
+    // compare against *-chromium-darwin.png baselines, so they are chromium-only
+    // by construction and excluded here.
     {
       name: 'firefox',
-      // The visual specs compare against *-chromium-darwin.png baselines, so
-      // they are chromium-only by construction and excluded here.
       testIgnore: ['**/visual-*.spec.ts'],
       use: { ...devices['Desktop Firefox'] },
     },

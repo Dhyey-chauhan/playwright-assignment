@@ -1,12 +1,10 @@
 name: Part 4
 
 # Manual only — this is a fixture suite, not a gate. It runs nothing but
-# tests/part-4, under firefox. 21 tests run: 10 pass and 11 fail, because P11
-# asserts a Chromium user-agent and is tagged to fail on Gecko.
-#
-# Firefox only by design: playwright.config.ts has the chromium project
-# commented out, so asking for one here would abort the run before a single
-# test executed.
+# tests/part-4, under chromium AND firefox. 21 tests per engine, so a full run
+# is 42 executions: 21 passed and 21 failed. The split differs by engine —
+# chromium 11 pass / 10 fail, firefox 10 pass / 11 fail — because P11 asserts a
+# Chromium user-agent and is tagged to fail on Gecko.
 #
 # No workflow_dispatch inputs on purpose: every input GitHub sees becomes a
 # form field on the "Run workflow" button, and there is nothing here worth
@@ -43,14 +41,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Eleven tests fail on purpose, so playwright exits non-zero on a healthy
-      # run. The exit code is ignored here and the real check happens in the
-      # next step, which compares every test's outcome to its @part-4-pass /
+      # Ten tests per engine fail on purpose, so playwright exits non-zero on a
+      # healthy run. The exit code is ignored here and the real check happens in
+      # the next step, which compares every test's outcome to its @part-4-pass /
       # @part-4-fail tag, per project.
       #
       # P11 carries project-scoped tags (@part-4-pass:chromium
-      # @part-4-fail:firefox). Only the firefox half applies to this run, which
-      # is why the failure count is 11 rather than 10.
+      # @part-4-fail:firefox), so both halves apply here — one expected pass and
+      # one expected failure, rather than a cross-engine regression.
+      #
+      # --project is repeatable, so both engines land in ONE playwright run and
+      # therefore one TestDino run, rather than two disconnected ones.
       - name: Run part-4
         continue-on-error: true
         env:
@@ -58,7 +59,7 @@ jobs:
           TESTDINO_SERVER_URL: ${{ vars.TESTDINO_SERVER_URL }}
           TESTDINO_TAGS: part-4,${{ github.head_ref || github.ref_name }}
           PW_JSON_REPORT: part-4-report.json
-        run: npx playwright test tests/part-4 --project=firefox
+        run: npx playwright test tests/part-4 --project=chromium --project=firefox
 
       - name: Check every outcome against its tag
         run: node scripts/verify-part-4-outcomes.js part-4-report.json
