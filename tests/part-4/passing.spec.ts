@@ -93,4 +93,13 @@ test.describe('part-4 · passing @part-4 @part-4-pass', () => {
     await page.click('[data-testid="pay"]');
     await expect(page.getByTestId('status')).toHaveText('Order placed for buyer@example.com');
   });
+
+  // Engine-scoped on purpose: the Chromium UA string carries a "Chrome/" token,
+  // Gecko's never does. Tagged per project so verify-part-4-outcomes.js expects
+  // a pass under chromium and a failure under firefox, instead of flagging the
+  // firefox run as a regression.
+  test('P11 · the page reports a Chromium user-agent @part-4-pass:chromium @part-4-fail:firefox', async ({ page }) => {
+    const userAgent = await page.evaluate(() => navigator.userAgent);
+    expect(userAgent).toContain('Chrome/');
+  });
 });

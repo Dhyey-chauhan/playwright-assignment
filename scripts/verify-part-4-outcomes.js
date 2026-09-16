@@ -11,6 +11,12 @@
 // is per BROWSER, not per spec — a test that passes in chromium and fails in
 // firefox has to be reported, and collapsing the two would hide exactly that.
 //
+// A test whose intended outcome genuinely DIFFERS by engine says so in its title
+// with project-scoped tags: `@part-4-pass:chromium @part-4-fail:firefox`. A
+// scoped tag wins over a bare one for the project it names, so a deliberate
+// engine difference reads as an expectation instead of a regression. Everything
+// else still needs exactly one bare @part-4-pass / @part-4-fail.
+//
 // Usage: node scripts/verify-part-4-outcomes.js <playwright-json-report>
 
 const fs = require('fs');
@@ -43,18 +49,46 @@ if (specs.length === 0) {
 const mismatches = [];
 const tally = {}; // projectName -> { pass, fail }
 
-for (const spec of specs) {
-  const wantsPass = spec.title.includes('@part-4-pass');
-  const wantsFail = spec.title.includes('@part-4-fail');
+// `@part-4-pass:chromium` / `@part-4-fail:firefox` — an outcome scoped to one project.
+const SCOPED_TAG = /@part-4-(pass|fail):([\w.-]+)/g;
 
-  if (wantsPass === wantsFail) {
+for (const spec of specs) {
+  const scoped = new Map(); // projectName -> 'pass' | 'fail'
+  for (const [, outcome, project] of spec.title.matchAll(SCOPED_TAG)) {
+    scoped.set(project, outcome);
+  }
+
+  // Strip the scoped tags before looking for a bare one — otherwise the
+  // `@part-4-pass` prefix inside `@part-4-pass:chromium` reads as a bare tag
+  // covering every project.
+  const bareTitle = spec.title.replace(SCOPED_TAG, '');
+  const barePass = bareTitle.includes('@part-4-pass');
+  const bareFail = bareTitle.includes('@part-4-fail');
+
+  if (barePass === bareFail && scoped.size === 0) {
     mismatches.push(`UNTAGGED  ${spec.title} — needs exactly one of @part-4-pass / @part-4-fail`);
+    continue;
+  }
+  if (barePass && bareFail) {
+    mismatches.push(`UNTAGGED  ${spec.title} — has both @part-4-pass and @part-4-fail`);
     continue;
   }
 
   // One entry per project the spec ran under.
   for (const test of spec.tests || []) {
     const project = test.projectName || 'unknown';
+
+    // A scoped tag wins for the project it names; otherwise the bare tag applies.
+    const expected = scoped.get(project) ?? (barePass ? 'pass' : bareFail ? 'fail' : null);
+    if (expected === null) {
+      mismatches.push(
+        `UNTAGGED [${project}] ${spec.title} — only project-scoped tags, none covering this project`
+      );
+      continue;
+    }
+    const wantsPass = expected === 'pass';
+    const wantsFail = expected === 'fail';
+
     tally[project] = tally[project] || { pass: 0, fail: 0 };
     tally[project][wantsPass ? 'pass' : 'fail'] += 1;
 
